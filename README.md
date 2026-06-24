@@ -35,13 +35,28 @@ railway run --service paperclip -- codex --version
 
 ## Imagen GHCR
 
-`ghcr.io/adminlynere/paperclip-codex` — construida y publicada por
+`ghcr.io/adminlynere/paperclip-codex` — construida por
 `.github/workflows/build-paperclip-image.yml`:
 
-- **PR** → build only (valida el Dockerfile).
-- **push a `main`** / `workflow_dispatch` → build + push (`:latest` y `:sha-<sha>`).
+- **PR / push a `main`** → **build only** (valida el Dockerfile). CI verde.
+- **push a `main`** con variable de repo `PUBLISH_IMAGE = true`, o **`workflow_dispatch`**
+  (`publish=true`) → build + **push** (`:latest` y `:sha-<sha>`).
 
 La imagen es **privada**: el pull requiere un PAT con scope `read:packages`.
+
+### Habilitar el push (una vez)
+
+El paquete `paperclip-codex` se creó desde el monorepo `lynere` y está **vinculado a él**, así que
+el `GITHUB_TOKEN` de *este* repo no puede escribirlo (push → `403 Forbidden`). Para habilitar la
+publicación desde este repo:
+
+1. **Conceder acceso al paquete**: GitHub → org **Packages** → `paperclip-codex` → *Package
+   settings* → **Manage Actions access** → *Add repository* → `adminLynere/paperclip` → Role **Write**.
+2. **Activar el push automático** (opcional): repo *Settings → Secrets and variables → Actions →
+   Variables* → `PUBLISH_IMAGE = true`. (O usar `workflow_dispatch` con `publish=true` puntualmente.)
+
+Hasta entonces, la imagen `:latest` ya existente (build del 2026-06-20) sigue siendo válida para
+Railway.
 
 ## Deploy en Railway
 

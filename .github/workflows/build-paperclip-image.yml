@@ -1,6 +1,15 @@
-# Build de la imagen Paperclip + Codex y push a GHCR.
-# - En PR: build only (valida el Dockerfile, no publica).
-# - En push a main / dispatch manual: build + push (:latest + :sha) a GHCR.
+# Build de la imagen Paperclip + Codex y (opcionalmente) push a GHCR.
+#
+# - Siempre BUILD (valida el Dockerfile) en PR, push a main y dispatch → CI verde.
+# - PUSH a GHCR (:latest + :sha) solo cuando está habilitado:
+#     · push a main: si la variable de repo `PUBLISH_IMAGE` == 'true'
+#     · workflow_dispatch: según el input `publish` (default true)
+#
+# IMPORTANTE — antes de habilitar el push, conceder a este repo acceso de escritura al
+# paquete GHCR `paperclip-codex` (hoy vinculado a adminLynere/lynere):
+#   GitHub → org Packages → paperclip-codex → Package settings → "Manage Actions access"
+#   → Add repository → adminLynere/paperclip → Role: Write.
+# Sin ese grant, el push da 403 (el GITHUB_TOKEN del repo no puede escribir el paquete).
 # La imagen es privada; el pull desde Railway requiere un PAT read:packages.
 name: build-paperclip-image
 
@@ -17,6 +26,11 @@ on:
       - Dockerfile
       - .github/workflows/build-paperclip-image.yml
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Push image to GHCR
+        type: boolean
+        default: true
 
 concurrency:
   group: build-image-${{ github.ref }}
@@ -35,11 +49,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve push decision
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "push=false" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "push=${{ inputs.publish }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "push=${{ vars.PUBLISH_IMAGE == 'true' }}" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GHCR
-        if: github.event_name != 'pull_request'
+        if: steps.decide.outputs.push == 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -60,7 +85,7 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
-          push: ${{ github.event_name != 'pull_request' }}
+          push: ${{ steps.decide.outputs.push == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
