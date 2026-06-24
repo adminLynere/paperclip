@@ -1,0 +1,67 @@
+# Build de la imagen Paperclip + Codex y push a GHCR.
+# - En PR: build only (valida el Dockerfile, no publica).
+# - En push a main / dispatch manual: build + push (:latest + :sha) a GHCR.
+# La imagen es privada; el pull desde Railway requiere un PAT read:packages.
+name: build-paperclip-image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - railway.toml
+      - .github/workflows/build-paperclip-image.yml
+  pull_request:
+    branches: [main]
+    paths:
+      - Dockerfile
+      - .github/workflows/build-paperclip-image.yml
+  workflow_dispatch:
+
+concurrency:
+  group: build-image-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/adminlynere/paperclip-codex
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,format=long
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

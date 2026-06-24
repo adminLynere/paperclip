@@ -1,0 +1,14 @@
+# Secretos — NUNCA commitear
+.env
+.env.*
+!.env.example
+
+# Codex auth (vive en el volumen de Railway, no en el repo)
+.codex/
+auth.json
+
+# OS / editores
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

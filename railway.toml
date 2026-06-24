@@ -1,0 +1,28 @@
+# Railway config-as-code — servicio `paperclip` (orquestación agentic + Codex CLI)
+# Cómo se usa en Railway:
+#   - Source: repo adminLynere/paperclip (sustituye a la imagen tuyenvd/paperclip).
+#   - Service Root Directory: "/" (el Dockerfile hace FROM tuyenvd/paperclip y añade
+#     Node 22 + @openai/codex; el build context es la raíz del repo).
+#   - Config-as-code path: "railway.toml" (Settings → Config).
+# Volumen: paperclip-volume montado en /root/.codex (persiste el login de Codex
+# entre reinicios/sleeps). Ya creado en el entorno dev.
+# Por qué Dockerfile y no la imagen directa: el proceso de agente debe correr como
+# root para leer /root/.codex/auth.json (modo 0600). Si corre no-root, Codex >=0.122
+# no encuentra credenciales y devuelve 401 "missing bearer". Ver ./Dockerfile.
+#
+# Deploy por PULL de imagen GHCR (alternativa al build en Railway): apuntar el servicio a
+# ghcr.io/adminlynere/paperclip-codex:latest y dar a Railway un PAT read:packages
+# (la imagen es privada). Ver README.md.
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 3
+numReplicas = 1
+# Paperclip orquesta a los agentes y debe estar SIEMPRE ON (sin App Sleeping):
+# los heartbeats/cron de los agentes no deben pausarse. Contrasta con api/web/keycloak,
+# que sí duermen.
+sleepApplication = false
