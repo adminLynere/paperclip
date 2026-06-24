@@ -21,7 +21,7 @@ on:
       - railway.toml
       - .github/workflows/build-paperclip-image.yml
   pull_request:
-    branches: [main]
+    branches: [main, development]
     paths:
       - Dockerfile
       - .github/workflows/build-paperclip-image.yml

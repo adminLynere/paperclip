@@ -83,3 +83,10 @@ curl -s https://paperclip-production-cf42.up.railway.app/api/agents/me \
 curl -s -X POST .../api/agents/4927e29e/heartbeat/invoke \
   -H "Authorization: Bearer $PAPERCLIP_API_KEY"
 ```
+
+## Flujo de ramas (gobernanza)
+
+`feature/* → development → main` (misma convención que `lynere`). PRs **contra `development`**
+(la CI valida el build); el push de la imagen a GHCR ocurre solo desde `main`. **Merge a `main` =
+aprobación humana** (L4). El plan free de la org no permite branch protection en privados → la regla
+se aplica **por convención**.
