@@ -15,30 +15,48 @@ La imagen base `tuyenvd/paperclip` **no trae el CLI de Codex**, que los agentes 
 ejecutar trabajo. Este repo añade encima:
 
 - **Node 22 + `@openai/codex`** (+ `git`, `ripgrep` que usa `codex exec`).
-- `VOLUME /root/.codex` para persistir el login de Codex entre reinicios/sleeps.
-- **`USER root`** — clave para el fix del 401 (abajo).
+- Una **config de Codex horneada** que apunta el harness a **OpenRouter** (abajo).
 
-## El fix del 401 ("missing bearer")
+## Backend de modelo: OpenRouter
 
-Codex ≥ 0.122 lee las credenciales **solo** de `$CODEX_HOME/auth.json`. El login vive en
-`/root/.codex/auth.json` (propiedad de `root`, modo `0600`, en el volumen). Un proceso
-**no-root** no puede leer ese archivo ni atravesar `/root` (modo `700`) → Codex no encuentra
-credenciales y devuelve **401**. Por eso el contenedor corre como `root` (`USER root`).
+El harness sigue siendo Codex CLI, pero su **backend de modelo es OpenRouter** (un proveedor
+OpenAI-compatible), no la cuenta de ChatGPT. La config se hornea en la imagen
+(`$CODEX_HOME/config.toml`):
 
-Login (una vez, persiste en el volumen):
+```toml
+model = "openai/gpt-5.4-mini"      # mismo modelo que el Codex local de lynere; override con build-arg
+model_provider = "openrouter"
 
-```bash
-railway run --service paperclip -- codex login --device-auth
-# verificar:
-railway run --service paperclip -- codex --version
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+env_key = "OPENROUTER_API_KEY"     # Codex lee la key en runtime de esta env var
+wire_api = "chat"                  # OpenRouter habla Chat Completions, no la Responses API
 ```
+
+- **La API key NO se hornea.** Es secreto de runtime: setea `OPENROUTER_API_KEY` como variable del
+  servicio `paperclip` en Railway (key de [openrouter.ai/keys](https://openrouter.ai/keys)).
+- **Cambiar de modelo** (Claude, Gemini, modelos baratos…): rebuild con
+  `--build-arg CODEX_MODEL=<slug>` (verifica el slug en [openrouter.ai/models](https://openrouter.ai/models)).
+  OpenRouter da facturación unificada y fallback entre modelos.
+- `CODEX_HOME=/opt/codex` (ruta primaria, **nunca** montada como volumen → ningún volumen de Railway
+  puede ocultar la config; hay una copia de respaldo en `/root/.codex`).
+
+### Por qué esto sustituye al antiguo "fix del 401"
+
+La versión anterior autenticaba Codex con `codex login --device-auth` → `/root/.codex/auth.json`
+(root, `0600`, en un volumen). Como un proceso **no-root** no podía leer ese archivo, devolvía
+**401 "missing bearer"**, y por eso el contenedor corría con `USER root` y el volumen persistía la
+credencial. Con OpenRouter la credencial es una **API key por env var**, así que **desaparecen**
+`auth.json`, el flujo `device-auth`, el volumen de credenciales y el motivo del `USER root`
+(se mantiene `root` solo porque la imagen base lo espera).
 
 ## Imagen GHCR
 
 `ghcr.io/adminlynere/paperclip-codex` — construida por
 `.github/workflows/build-paperclip-image.yml`:
 
-- **PR / push a `main`** → **build only** (valida el Dockerfile). CI verde.
+- **PR / push a `main`** → **build only** (valida el Dockerfile). CI verde sin secretos.
 - **push a `main`** con variable de repo `PUBLISH_IMAGE = true`, o **`workflow_dispatch`**
   (`publish=true`) → build + **push** (`:latest` y `:sha-<sha>`).
 
@@ -55,9 +73,6 @@ publicación desde este repo:
 2. **Activar el push automático** (opcional): repo *Settings → Secrets and variables → Actions →
    Variables* → `PUBLISH_IMAGE = true`. (O usar `workflow_dispatch` con `publish=true` puntualmente.)
 
-Hasta entonces, la imagen `:latest` ya existente (build del 2026-06-20) sigue siendo válida para
-Railway.
-
 ## Deploy en Railway
 
 Dos modos (servicio `paperclip`, ID `931a5318-7340-4525-a83c-862e161fbc5f`, env `dev`):
@@ -70,13 +85,29 @@ Dos modos (servicio `paperclip`, ID `931a5318-7340-4525-a83c-862e161fbc5f`, env 
    - Dar a Railway un **PAT `read:packages`** (Variables / registry credentials) porque la
      imagen es privada.
 
-En ambos casos: volumen `paperclip-volume` en `/root/.codex`, y **App Sleeping OFF**
-(`sleepApplication = false`) — los heartbeats de los agentes no deben pausarse.
+En ambos casos:
+
+- Setear la variable **`OPENROUTER_API_KEY`** en el servicio.
+- **Desmontar el antiguo `paperclip-volume`** de `/root/.codex` (su único propósito era persistir
+  `auth.json`, que ya no existe). La config de Codex va horneada en la imagen. Si persistes datos
+  propios de Paperclip, usa un mountPath distinto, no `/opt/codex` ni `/root/.codex`.
+- **App Sleeping OFF** (`sleepApplication = false`) — los heartbeats de los agentes no deben pausarse.
 
 ## Verificar que los agentes pueden ejecutar Codex
 
 ```bash
-# CEO key en PAPERCLIP_API_KEY (.env):
+# El CLI está instalado y la config apunta a OpenRouter:
+railway run --service paperclip -- codex --version
+railway run --service paperclip -- cat /opt/codex/config.toml
+
+# Smoke directo del backend (sustituye <model> por el slug horneado):
+railway run --service paperclip -- sh -lc \
+  'curl -s https://openrouter.ai/api/v1/chat/completions \
+     -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+     -H "Content-Type: application/json" \
+     -d "{\"model\":\"openai/gpt-5.4-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}"'
+
+# End-to-end vía Paperclip (CEO key en PAPERCLIP_API_KEY):
 curl -s https://paperclip-production-cf42.up.railway.app/api/agents/me \
   -H "Authorization: Bearer $PAPERCLIP_API_KEY"
 # disparar un heartbeat/invoke del CEO (self-only):
