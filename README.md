@@ -24,14 +24,15 @@ OpenAI-compatible), no la cuenta de ChatGPT. La config se hornea en la imagen
 (`$CODEX_HOME/config.toml`):
 
 ```toml
-model = "openai/gpt-5.4-mini"      # mismo modelo que el Codex local de lynere; override con build-arg
+model = "openai/gpt-5-nano"        # opción barata (≈$0.05/$0.40 por 1M); override con build-arg CODEX_MODEL
 model_provider = "openrouter"
 
 [model_providers.openrouter]
 name = "OpenRouter"
 base_url = "https://openrouter.ai/api/v1"
 env_key = "OPENROUTER_API_KEY"     # Codex lee la key en runtime de esta env var
-wire_api = "chat"                  # OpenRouter habla Chat Completions, no la Responses API
+wire_api = "responses"             # Codex ≥0.142 usa la Responses API; OpenRouter /responses la soporta (chat fue eliminado)
+requires_openai_auth = false       # no requiere login de ChatGPT — la credencial va por env_key
 ```
 
 - **La API key NO se hornea.** Es secreto de runtime: setea `OPENROUTER_API_KEY` como variable del
@@ -100,12 +101,12 @@ En ambos casos:
 railway run --service paperclip -- codex --version
 railway run --service paperclip -- cat /opt/codex/config.toml
 
-# Smoke directo del backend (sustituye <model> por el slug horneado):
+# Smoke directo del backend, mismo endpoint que usa Codex (/responses; sustituye el slug si lo cambiaste):
 railway run --service paperclip -- sh -lc \
-  'curl -s https://openrouter.ai/api/v1/chat/completions \
+  'curl -s https://openrouter.ai/api/v1/responses \
      -H "Authorization: Bearer $OPENROUTER_API_KEY" \
      -H "Content-Type: application/json" \
-     -d "{\"model\":\"openai/gpt-5.4-mini\",\"messages\":[{\"role\":\"user\",\"content\":\"ping\"}]}"'
+     -d "{\"model\":\"openai/gpt-5-nano\",\"input\":\"ping\"}"'
 
 # End-to-end vía Paperclip (CEO key en PAPERCLIP_API_KEY):
 curl -s https://paperclip-production-cf42.up.railway.app/api/agents/me \

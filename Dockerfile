@@ -19,11 +19,11 @@
 # ─────────────────────────────────────────────────────────────────────────────
 FROM tuyenvd/paperclip
 
-# Modelo por defecto (slug de OpenRouter). Mantiene los mismos modelos que el Codex
-# local de lynere (.codex/config.toml: gpt-5.4-mini). Override en build:
-#   docker build --build-arg CODEX_MODEL=anthropic/claude-sonnet-4 ...
+# Modelo por defecto (slug de OpenRouter). gpt-5-nano = opción barata (≈$0.05/$0.40 por 1M)
+# y compatible con la Responses API que usa Codex (verificado 200 en /responses).
+# Override en build: docker build --build-arg CODEX_MODEL=anthropic/claude-sonnet-4 ...
 # Verifica el slug exacto en https://openrouter.ai/models.
-ARG CODEX_MODEL=openai/gpt-5.4-mini
+ARG CODEX_MODEL=openai/gpt-5-nano
 
 # Codex CLI requiere Node 22+. Instalamos también git y ripgrep (los usa `codex exec`).
 RUN apt-get update \
@@ -53,7 +53,8 @@ RUN for dir in /opt/codex /root/.codex; do \
         echo "name = \"OpenRouter\""; \
         echo "base_url = \"https://openrouter.ai/api/v1\""; \
         echo "env_key = \"OPENROUTER_API_KEY\""; \
-        echo "wire_api = \"chat\""; \
+        echo "wire_api = \"responses\""; \
+        echo "requires_openai_auth = false"; \
         echo ""; \
         echo "[model_providers.openrouter.http_headers]"; \
         echo "\"X-Title\" = \"Lynere Paperclip\""; \
