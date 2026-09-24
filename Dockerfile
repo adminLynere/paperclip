@@ -1,8 +1,13 @@
 # ─────────────────────────────────────────────────────────────────────────────
-# Paperclip + Codex CLI (self-host en Railway) — backend de modelo vía OpenRouter
+# Paperclip + Codex CLI + opencode (self-host en Railway) — backend de modelo vía OpenRouter
 # ─────────────────────────────────────────────────────────────────────────────
 # Base: imagen de Paperclip (orquestación agentic). Le añadimos el CLI de Codex
-# (@openai/codex) para que los agentes ejecuten trabajo (`codex exec`).
+# (@openai/codex) para que los agentes ejecuten trabajo (`codex exec`), y opencode
+# (`opencode-ai`) como segundo harness para el adaptador `opencode_local`.
+#
+# Harness vs provider: the harness (Codex, opencode) is the CLI that runs the agent's work —
+# reads files, runs commands, edits. The provider (OpenRouter) only serves the model. Paperclip
+# has no "openrouter" adapter because OpenRouter executes nothing.
 #
 # Backend de modelo = OpenRouter (proveedor OpenAI-compatible). Codex lee la API key
 # en RUNTIME de $OPENROUTER_API_KEY (variable del servicio en Railway) — NO se hornea
@@ -25,14 +30,42 @@ FROM tuyenvd/paperclip
 # Verifica el slug exacto en https://openrouter.ai/models.
 ARG CODEX_MODEL=openai/gpt-5-nano
 
+# Second harness, installed next to Codex (PE-17): opencode talks to OpenRouter through
+# native chat completions instead of Codex's `wire_api = "responses"` shim, which breaks on
+# the second tool-call turn for most models. Pinned so a rebuild never changes the harness
+# silently. Override: --build-arg OPENCODE_VERSION=<version>.
+ARG OPENCODE_VERSION=1.18.32
+
 # Codex CLI requiere Node 22+. Instalamos también git y ripgrep (los usa `codex exec`).
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl ca-certificates git ripgrep \
   && curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
   && apt-get install -y --no-install-recommends nodejs \
-  && npm install -g @openai/codex \
+  && npm install -g @openai/codex "opencode-ai@${OPENCODE_VERSION}" \
+  && codex --version \
+  && opencode --version \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
+
+# opencode config baked outside any volume (same reasoning as CODEX_HOME below). The
+# OpenRouter key is read at runtime from $OPENROUTER_API_KEY — never baked. Auto-update and
+# session sharing are off: an unattended agent must not upgrade itself or publish sessions.
+ENV OPENCODE_CONFIG=/opt/opencode/opencode.json
+RUN mkdir -p /opt/opencode \
+  && printf '%s\n' \
+    '{' \
+    '  "$schema": "https://opencode.ai/config.json",' \
+    '  "autoupdate": false,' \
+    '  "share": "disabled",' \
+    '  "provider": {' \
+    '    "openrouter": {' \
+    '      "options": {' \
+    '        "apiKey": "{env:OPENROUTER_API_KEY}",' \
+    '        "headers": { "X-Title": "Lynere Paperclip" }' \
+    '      }' \
+    '    }' \
+    '  }' \
+    '}' > "$OPENCODE_CONFIG"
 
 # Config de Codex horneada en la imagen: apunta el harness a OpenRouter.
 # CODEX_HOME=/opt/codex es la ruta primaria (NUNCA montada como volumen, así un volumen

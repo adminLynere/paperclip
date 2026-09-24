@@ -52,6 +52,41 @@ credencial. Con OpenRouter la credencial es una **API key por env var**, así qu
 `auth.json`, el flujo `device-auth`, el volumen de credenciales y el motivo del `USER root`
 (se mantiene `root` solo porque la imagen base lo espera).
 
+## Harness vs provider — and the second harness: opencode
+
+**The harness is the CLI that runs the agent's work** (reads files, runs commands, edits):
+Codex or opencode. **The provider only serves the model**: OpenRouter. Paperclip has no
+"openrouter" adapter because OpenRouter executes nothing — which is why a Paperclip agent on
+OpenRouter still shows "Codex".
+
+Codex talks to OpenRouter through `wire_api = "responses"`, a shim on which many models answer
+one turn and break on the second turn after a tool call. The image therefore also installs
+**opencode** (`opencode-ai`, pinned by `ARG OPENCODE_VERSION`), which uses native chat completions,
+for Paperclip's `opencode_local` adapter. Codex stays installed: agents move one by one.
+
+- Config baked at `OPENCODE_CONFIG=/opt/opencode/opencode.json` (outside any volume). The key is
+  read at runtime from the same `OPENROUTER_API_KEY`; auto-update and session sharing are off.
+- An agent picks a model as `openrouter/<slug>` in its `adapterConfig`.
+- Verified locally on 2026-09-24 (image built from this Dockerfile, three-step prompt: shell
+  tool, read tool, answer) — all four completed the multi-turn tool-call run:
+  `nvidia/nemotron-3-super-120b-a12b:free`, `deepseek/deepseek-v4-flash`,
+  `anthropic/claude-haiku-4.5`, `google/gemini-2.5-flash`.
+
+```bash
+railway run --service paperclip -- opencode --version
+railway run --service paperclip -- sh -lc \
+  'opencode run -m openrouter/nvidia/nemotron-3-super-120b-a12b:free "Reply with exactly: harness-ok"'
+```
+
+Switching an agent's adapter or model invalidates its resumable session (the session is bound to
+the model): reset the agent's session when migrating it.
+
+## Mount path of the volume
+
+Paperclip keeps its state (instruction bundles, workspaces, projects, per-agent homes) under
+`PAPERCLIP_HOME=/paperclip`. Mount the Railway volume **at `/paperclip`**; mounted anywhere else, a
+redeploy wipes that state. Runbook: `docs/architecture/paperclip-sync.md` in `adminLynere/lynere`.
+
 ## Imagen GHCR
 
 `ghcr.io/adminlynere/paperclip-codex` — construida por
